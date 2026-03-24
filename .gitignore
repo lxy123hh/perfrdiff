@@ -1,0 +1,26 @@
+checkpoints/
+external/
+.idea/
+data/
+# Python
+__pycache__/
+*.py[cod]
+*.class
+*.so
+.pytest_cache/
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Logs
+*.log
+
+# System
+.DS_Store
+Thumbs.db

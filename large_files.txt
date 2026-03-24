@@ -1,0 +1,10 @@
+/home/lxy/PerFRDiff/data/neighbour_emotion_train.npy
+/home/lxy/PerFRDiff/data/person_specific_neighbour_emotion_train.npy
+/home/lxy/PerFRDiff/external/FaceVerse/data/faceverse_simple_v2.npy
+/home/lxy/PerFRDiff/external/PIRender/cur_model_fold.pth
+/home/lxy/PerFRDiff/checkpoints/diffusion_model/TransformerDenoiser/checkpoint.pth
+/home/lxy/PerFRDiff/checkpoints/diffusion_model/DiffusionPriorNetwork/checkpoint.pth
+/home/lxy/PerFRDiff/checkpoints/person_specific/checkpoint.pth
+/home/lxy/PerFRDiff/checkpoints/rewrite_weight/TransformerDenoiser/checkpoint.pth
+/home/lxy/PerFRDiff/checkpoints/rewrite_weight/DiffusionPriorNetwork/checkpoint.pth
+/home/lxy/PerFRDiff/checkpoints/rewrite_weight/ModifierNetwork/checkpoint.pth
