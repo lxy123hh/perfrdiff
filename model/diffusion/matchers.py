@@ -11,6 +11,19 @@ from utils.util import load_config_from_file, checkpoint_load
 from einops import rearrange
 
 
+def maybe_load_pretrained_checkpoint(conf, model, device):
+    should_load = conf.mode == "test" or conf.get("load_pretrained_backbone", False)
+    if not should_load:
+        return
+
+    checkpoint_path = None
+    pretrained_checkpoint_dir = conf.get("pretrained_checkpoint_dir", None)
+    if pretrained_checkpoint_dir:
+        checkpoint_path = os.path.join(pretrained_checkpoint_dir, model.get_model_name(), "checkpoint.pth")
+
+    checkpoint_load(conf, model, device, checkpoint_path=checkpoint_path)
+
+
 class BaseLatentModel(nn.Module):
     def __init__(self, device, cfg, emb_preprocessing=False, freeze_encoder=True):
         super(BaseLatentModel, self).__init__()
@@ -162,9 +175,7 @@ class PriorLatentMatcher(BaseLatentModel):
         self.model = DiffusionPriorNetwork(**self.init_params)
 
         self.mode = conf.mode
-        if self.mode == "test":  # load checkpoints
-            checkpoint_load(conf, self.model, device, checkpoint_path=None)
-            # print(f'Successfully load checkpoint: {self.model.get_model_name()}')
+        maybe_load_pretrained_checkpoint(conf, self.model, device)
 
         self.prior_diffusion = PriorLatentDiffusion(
             conf.diffusion_prior.args,
@@ -356,9 +367,7 @@ class DecoderLatentMatcher(BaseLatentModel):
 
         self.model = TransformerDenoiser(**self.init_params)
         self.mode = conf.mode
-        if self.mode == "test":
-            checkpoint_load(conf, self.model, device, checkpoint_path=None)
-            # print(f'Successfully load checkpoint: {self.model.get_model_name()}')
+        maybe_load_pretrained_checkpoint(conf, self.model, device)
 
         self.decoder_diffusion = DecoderLatentDiffusion(
             conf.diffusion_decoder.scheduler,
