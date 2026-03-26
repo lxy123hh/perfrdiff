@@ -24,3 +24,6 @@ venv.bak/
 # System
 .DS_Store
 Thumbs.db
+
+save/
+README.md
