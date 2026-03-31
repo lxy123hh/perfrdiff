@@ -120,6 +120,13 @@ class BaseLatentModel(nn.Module):
     def load_state_dict(self, state_dict):
         self.model.load_state_dict(state_dict)
 
+    def encode_audio(self, audio):
+        has_trainable_audio_encoder = any(parameter.requires_grad for parameter in self.audio_encoder.parameters())
+        if self.mode in ["train", "val"] and has_trainable_audio_encoder:
+            return self.audio_encoder._encode(audio)
+        with torch.no_grad():
+            return self.audio_encoder._encode(audio)
+
     def to(self, device):
         self.model = self.model.to(device)
         return self
@@ -128,10 +135,10 @@ class BaseLatentModel(nn.Module):
         return self.to(torch.device("cuda"))
 
     def train(self, mode=True):
-        self.model.train(mode)
+        return super().train(mode)
 
     def eval(self):
-        self.model.eval()
+        return super().eval()
 
 
 class PriorLatentMatcher(BaseLatentModel):
@@ -210,11 +217,10 @@ class PriorLatentMatcher(BaseLatentModel):
             s_emotion_selected = speaker_emotion[:, window_start:window_end]
             s_3dmm_selected = speaker_3dmm[:, window_start:window_end]
             l_emotion_selected = listener_emotion[:, window_start:window_end]
+            s_audio_encodings = self.encode_audio(s_audio_selected)
+            s_audio_encodings = s_audio_encodings.repeat_interleave(self.k, dim=0)
 
             with torch.no_grad():
-                s_audio_encodings = self.audio_encoder._encode(s_audio_selected)
-                s_audio_encodings = s_audio_encodings.repeat_interleave(self.k, dim=0)
-
                 x_start = self.latent_embedder.encode(l_emotion_selected).unsqueeze(1)  # (..., l_3dmm_selected)
 
                 s_latent_embed = self.latent_embedder.encode(s_emotion_selected).unsqueeze(1)  # (..., s_3dmm_selected)
@@ -412,14 +418,13 @@ class DecoderLatentMatcher(BaseLatentModel):
             past_listener_emotion = past_listener_emotion[:, window_start:window_end]
 
             x_start_selected = l_emotion_selected
+            s_audio_encodings = self.encode_audio(s_audio_selected)
+            s_audio_encodings = s_audio_encodings.repeat_interleave(self.k, dim=0)
 
             with torch.no_grad():
                 personal_embed = self.person_encoder.forward(l_personal_input)[0].unsqueeze(1)
                 
                 l_latent_embed = self.latent_embedder.encode(l_emotion_selected).unsqueeze(1)
-
-                s_audio_encodings = self.audio_encoder._encode(s_audio_selected)
-                s_audio_encodings = s_audio_encodings.repeat_interleave(self.k, dim=0)
 
                 s_latent_embed = self.latent_embedder.encode(s_emotion_selected).unsqueeze(1)
                 s_latent_embed = s_latent_embed.repeat_interleave(self.k, dim=0)
@@ -551,6 +556,7 @@ class LatentMatcher(nn.Module):
         self.mode = cfg.mode
         self.diffusion_prior = PriorLatentMatcher(cfg, device=device)
         self.diffusion_decoder = DecoderLatentMatcher(cfg, device=device)
+        self.diffusion_decoder.audio_encoder = self.diffusion_prior.audio_encoder
 
     def forward(
             self,

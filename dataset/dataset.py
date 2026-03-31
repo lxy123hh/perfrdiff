@@ -1,6 +1,7 @@
 import os
 from copy import deepcopy
 import torch
+import torch.nn.functional as F
 from torch.utils import data
 from torchvision import transforms
 import numpy as np
@@ -70,6 +71,39 @@ def extract_audio_features(audio_path, fps, n_frames):
     curr_feats = np.stack(curr_feats, axis=0)
 
     return curr_feats
+
+
+def extract_audio_waveform(audio_path, fps, n_frames, sample_rate=16000):
+    waveform, sr = torchaudio.load(audio_path)
+
+    if waveform.shape[0] > 1:
+        waveform = waveform.mean(dim=0, keepdim=True)
+
+    if sr != sample_rate:
+        waveform = torchaudio.functional.resample(waveform, sr, sample_rate)
+        sr = sample_rate
+
+    waveform = waveform.squeeze(0).float()
+    waveform = waveform - waveform.mean()
+
+    frame_n_samples = max(int(sr / fps), 1)
+    target_length = frame_n_samples * n_frames
+    curr_length = waveform.shape[0]
+
+    if curr_length > target_length:
+        waveform = waveform[:target_length]
+    elif curr_length < target_length:
+        waveform = F.pad(waveform, (0, target_length - curr_length))
+
+    return waveform.reshape(n_frames, frame_n_samples)
+
+
+def load_audio_clip(audio_path, fps, n_frames, audio_representation="features", audio_sample_rate=16000):
+    if audio_representation == "features":
+        return torch.from_numpy(extract_audio_features(audio_path, fps, n_frames))
+    if audio_representation == "waveform":
+        return extract_audio_waveform(audio_path, fps, n_frames, sample_rate=audio_sample_rate)
+    raise ValueError(f"Unsupported audio representation: {audio_representation}")
 
 
 def custom_collate_train(batch):
@@ -195,8 +229,9 @@ def custom_collate_test(batch):
 
 class ReactionDatasetTrain(data.Dataset):
     def __init__(self, root_path, split, img_size=256, crop_size=224, num_person=16, num_sample=4, clip_length=751,
-                 fps=25, load_audio=True, load_video_s=True, load_video_l=False, load_emotion_s=True,
-                 load_emotion_l=True, load_3dmm_s=True, load_3dmm_l=True, load_ref=True, k_appro=10):
+                 fps=25, audio_representation="features", audio_sample_rate=16000, load_audio=True, load_video_s=True,
+                 load_video_l=False, load_emotion_s=True, load_emotion_l=True, load_3dmm_s=True, load_3dmm_l=True,
+                 load_ref=True, k_appro=10):
 
         self._root_path = root_path
         self._num_person = num_person
@@ -219,6 +254,8 @@ class ReactionDatasetTrain(data.Dataset):
         self.load_emotion_s = load_emotion_s
         self.load_emotion_l = load_emotion_l
         self.load_ref = load_ref
+        self.audio_representation = audio_representation
+        self.audio_sample_rate = audio_sample_rate
 
         self.dataset_path = os.path.join(root_path, self._split)
         self._audio_path = os.path.join(self.dataset_path, 'Audio_files')
@@ -340,10 +377,13 @@ class ReactionDatasetTrain(data.Dataset):
         speaker_audio_clip = torch.zeros(size=(0,))
         if self.load_audio:
             speaker_audio_path = os.path.join(self._audio_path, self.speaker_path[index] + '.wav')
-            speaker_audio_clip = extract_audio_features(speaker_audio_path, self._fps, total_length)
-
-            # shape: [_clip_length, 78]
-            speaker_audio_clip = torch.from_numpy(speaker_audio_clip[cp:cp + self._clip_length])
+            speaker_audio_clip = load_audio_clip(
+                speaker_audio_path,
+                self._fps,
+                total_length,
+                audio_representation=self.audio_representation,
+                audio_sample_rate=self.audio_sample_rate,
+            )[cp:cp + self._clip_length]
 
         # ========================= Load Speaker & Listener emotion ==========================
         listener_emotion_clip = torch.zeros(size=(0,))
@@ -493,9 +533,10 @@ class ReactionDatasetTrain(data.Dataset):
 
 
 class ReactionDatasetTest(data.Dataset):
-    def __init__(self, root_path, split, img_size=256, crop_size=224, clip_length=751, fps=25, load_audio=True,
-                 load_video_s=False, load_video_l=False, load_emotion_s=True, load_emotion_l=False, load_3dmm_s=True,
-                 load_3dmm_l=True, load_ref=True, use_person_specific_split=True):
+    def __init__(self, root_path, split, img_size=256, crop_size=224, clip_length=751, fps=25,
+                 audio_representation="features", audio_sample_rate=16000, load_audio=True, load_video_s=False,
+                 load_video_l=False, load_emotion_s=True, load_emotion_l=False, load_3dmm_s=True, load_3dmm_l=True,
+                 load_ref=True, use_person_specific_split=True):
 
         self._root_path = root_path
         self._clip_length = clip_length
@@ -523,6 +564,8 @@ class ReactionDatasetTest(data.Dataset):
         self.load_emotion_s = load_emotion_s
         self.load_emotion_l = load_emotion_l
         self.load_ref = load_ref
+        self.audio_representation = audio_representation
+        self.audio_sample_rate = audio_sample_rate
 
         self.dataset_path = os.path.join(root_path, self._split)
         self._audio_path = os.path.join(self.dataset_path, 'Audio_files')
@@ -604,9 +647,13 @@ class ReactionDatasetTest(data.Dataset):
         speaker_audio_clip = torch.zeros(size=(0,))
         if self.load_audio:
             speaker_audio_path = os.path.join(self._audio_path, self.speaker_path[index] + '.wav')
-            speaker_audio_clip = extract_audio_features(speaker_audio_path, self._fps, total_length)
-            # shape: [_clip_length, 78]
-            speaker_audio_clip = torch.from_numpy(speaker_audio_clip[cp:cp + self._clip_length])
+            speaker_audio_clip = load_audio_clip(
+                speaker_audio_path,
+                self._fps,
+                total_length,
+                audio_representation=self.audio_representation,
+                audio_sample_rate=self.audio_sample_rate,
+            )[cp:cp + self._clip_length]
 
         # ========================= Load Speaker & Listener emotion ==========================
         listener_emotion_clip = torch.zeros(size=(0,))
@@ -754,6 +801,8 @@ def get_dataloader(conf):
             crop_size=conf.crop_size,
             clip_length=conf.clip_length,
             fps=conf.fps,
+            audio_representation=conf.get("audio_representation", "features"),
+            audio_sample_rate=conf.get("audio_sample_rate", 16000),
             load_audio=conf.load_audio,
             load_video_s=conf.load_video_s,
             load_video_l=conf.load_video_l,
@@ -773,6 +822,8 @@ def get_dataloader(conf):
             crop_size=conf.crop_size,
             clip_length=conf.clip_length,
             fps=conf.fps,
+            audio_representation=conf.get("audio_representation", "features"),
+            audio_sample_rate=conf.get("audio_sample_rate", 16000),
             load_audio=conf.load_audio,
             load_video_s=conf.load_video_s,
             load_video_l=conf.load_video_l,

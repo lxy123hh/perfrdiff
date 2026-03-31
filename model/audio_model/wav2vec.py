@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from transformers import Wav2Vec2Model
@@ -154,3 +155,69 @@ class Wav2Vec2Model_(Wav2Vec2Model):
             hidden_states=encoder_outputs.hidden_states,
             attentions=encoder_outputs.attentions,
         )
+
+
+class Wav2Vec2AudioEncoder(nn.Module):
+    def __init__(
+        self,
+        pretrained_model_name_or_path="facebook/wav2vec2-base-960h",
+        output_dim=256,
+        sample_rate=16000,
+        target_fps=25,
+        freeze_feature_encoder=True,
+        freeze_backbone=True,
+        train_projection=True,
+        apply_layer_norm=True,
+        local_files_only=False,
+    ):
+        super().__init__()
+        self.sample_rate = sample_rate
+        self.target_fps = target_fps
+        self.apply_layer_norm = apply_layer_norm
+
+        self.backbone = Wav2Vec2Model_.from_pretrained(
+            pretrained_model_name_or_path,
+            local_files_only=local_files_only,
+        )
+        if freeze_feature_encoder:
+            self.backbone.freeze_feature_encoder()
+
+        if freeze_backbone:
+            for parameter in self.backbone.parameters():
+                parameter.requires_grad = False
+
+        self.projection = nn.Linear(self.backbone.config.hidden_size, output_dim)
+        if not train_projection:
+            for parameter in self.projection.parameters():
+                parameter.requires_grad = False
+
+    def _encode(self, x):
+        squeeze_batch = False
+        if x.dim() == 2:
+            x = x.unsqueeze(0)
+            squeeze_batch = True
+        elif x.dim() != 3:
+            raise ValueError(
+                "Wav2Vec2AudioEncoder expects audio shaped as [batch, frames, samples_per_frame] "
+                "or [frames, samples_per_frame]."
+            )
+
+        batch_size, frame_num, samples_per_frame = x.shape
+        input_values = x.reshape(batch_size, frame_num * samples_per_frame).float()
+
+        if self.apply_layer_norm:
+            input_values = F.layer_norm(input_values, (input_values.shape[-1],))
+
+        hidden_states = self.backbone(
+            input_values=input_values,
+            frame_num=frame_num,
+            return_dict=True,
+        ).last_hidden_state
+        encodings = self.projection(hidden_states)
+
+        if squeeze_batch:
+            encodings = encodings.squeeze(0)
+        return encodings
+
+    def get_model_name(self):
+        return self.__class__.__name__

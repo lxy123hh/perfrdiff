@@ -213,6 +213,20 @@ def save_checkpoint(cfg, model, optimizer):
     torch.save(decoder_checkpoint, save_path)
     print(f'Successfully save checkpoint: {save_path}')
 
+    audio_encoder_model = getattr(model.diffusion_prior, "audio_encoder", None)
+    if audio_encoder_model is not None and hasattr(audio_encoder_model, "get_model_name"):
+        audio_encoder_name = audio_encoder_model.get_model_name()
+        audio_encoder_dir = os.path.join(cfg.trainer.checkpoint_dir, audio_encoder_name)
+        audio_encoder_checkpoint = {
+            'state_dict': audio_encoder_model.state_dict(),
+            'optimizer': optimizer.state_dict(),
+        }
+        save_dir = os.path.join(audio_encoder_dir)
+        os.makedirs(save_dir, exist_ok=True)
+        save_path = os.path.join(save_dir, 'checkpoint.pth')
+        torch.save(audio_encoder_checkpoint, save_path)
+        print(f'Successfully save checkpoint: {save_path}')
+
 
 def checkpoint_load(cfg, model, device, checkpoint_path=None):
     if checkpoint_path is None:
